@@ -1,0 +1,195 @@
+// FixAgent implementations. All three edit files inside one worktree; the scope check afterwards is
+// done by the fix stage with git (never trusted to the agent). Droid is the primary; Claude and Mock
+// sit behind the same interface as fallbacks.
+import type { FixAgent, FixRequest, FixResult, LLM } from '@patchline/core';
+import { execFile } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { z } from 'zod/v4';
+
+const norm = (p: string) => path.resolve(p).toLowerCase();
+
+function prompt(req: FixRequest): string {
+  return `You are fixing one bug in a small TypeScript browser game. ${req.instructions}
+
+Bug: ${req.bugTitle}
+
+The failing repro test is ${req.failingTestPath}. Do not edit it or any other test file.
+You may only edit these files: ${req.allowlist.join(', ')}.
+Run the repro with: node node_modules/vitest/vitest.mjs run ${req.failingTestPath}   (may be unavailable; reason from code if so)
+
+Failing test:
+\`\`\`ts
+${req.failingTestCode}
+\`\`\`
+
+The commit that introduced the bug (found by git bisect):
+\`\`\`diff
+${req.culpritDiff}
+\`\`\`
+
+First state a short plan, then make the edit, then summarize what you changed in one sentence.`;
+}
+
+// ---------------------------------------------------------------- Droid
+
+export class DroidFixAgent implements FixAgent {
+  readonly name = 'droid';
+  constructor(private apiKey: string) {}
+
+  async fix(req: FixRequest): Promise<FixResult> {
+    // Imported lazily so the orchestrator boots without the droid CLI installed.
+    const sdk = await import('@factory/droid-sdk/node');
+    const { createSession, AutonomyLevel, ToolConfirmationOutcome, ToolConfirmationType, DroidMessageType } = sdk;
+    const allowed = new Set(req.allowlist.map((f) => norm(path.join(req.worktree, f))));
+    const inWorktree = (p: string) => norm(p).startsWith(norm(req.worktree));
+
+    const session = await createSession({
+      cwd: req.worktree,
+      apiKey: this.apiKey,
+      autonomyLevel: AutonomyLevel.Off, // every action goes through our permission handler
+      permissionHandler({ toolUses, options }) {
+        // Least privilege, enforced in code: edits only to allowlisted files; commands only to run vitest.
+        const ok = toolUses.every((u) => {
+          const d = u.details as { type: string; filePath?: string; command?: string };
+          if (d.type === ToolConfirmationType.Edit || d.type === ToolConfirmationType.Create || d.type === ToolConfirmationType.ApplyPatch) {
+            return !!d.filePath && allowed.has(norm(path.isAbsolute(d.filePath) ? d.filePath : path.join(req.worktree, d.filePath)));
+          }
+          if (d.type === ToolConfirmationType.Execute) return !!d.command && /^(node\s+node_modules[\\/]vitest|npx vitest|pnpm (exec )?vitest)\b/.test(d.command.trim());
+          return false;
+        });
+        const want = ok ? ToolConfirmationOutcome.ProceedOnce : ToolConfirmationOutcome.Cancel;
+        const verdict = toolUses.map((u) => `${(u.details as { type: string }).type} ${(u.details as { filePath?: string }).filePath ?? (u.details as { command?: string }).command ?? ''}`).join(', ');
+        req.onStep(`[permission] ${ok ? 'allow' : 'DENY'}: ${verdict}`);
+        return options.some((o) => o.value === want) ? want : ToolConfirmationOutcome.Cancel;
+      },
+    });
+
+    let text = '';
+    try {
+      for await (const msg of session.stream(prompt(req))) {
+        switch (msg.type) {
+          case DroidMessageType.Assistant:
+            text += msg.text;
+            req.onStep(msg.text.trim());
+            break;
+          case DroidMessageType.ToolCall:
+            req.onStep(`[tool] ${msg.name}`);
+            break;
+          case DroidMessageType.ToolResult:
+            req.onStep(`[tool result] ${msg.isError ? 'error' : 'ok'}`);
+            break;
+          case DroidMessageType.Error:
+            req.onStep(`[error] ${msg.message}`);
+            break;
+          case DroidMessageType.Result:
+            if (!msg.success) throw new Error(msg.error?.message ?? `Droid turn ended: ${msg.subtype}`);
+            break;
+        }
+      }
+    } finally {
+      await session.close();
+    }
+    void inWorktree;
+    const plan = text.split('\n').slice(0, 8).join('\n');
+    return { plan, summary: text.split('\n').filter(Boolean).pop() ?? '', agent: 'droid' };
+  }
+}
+
+// ---------------------------------------------------------------- Claude fallback
+
+const ClaudePatch = z.object({
+  plan: z.string(),
+  files: z.array(z.object({ path: z.string(), content: z.string() })),
+  summary: z.string(),
+});
+
+export class ClaudeFixAgent implements FixAgent {
+  readonly name = 'claude';
+  constructor(private llm: LLM) {}
+
+  async fix(req: FixRequest): Promise<FixResult> {
+    const current = req.allowlist.map((f) => ({ path: f, content: fs.readFileSync(path.join(req.worktree, f), 'utf8') }));
+    req.onStep(`Reading ${req.allowlist.join(', ')}`);
+    const out = await this.llm.json({
+      task: 'fix.patch',
+      system: 'You are a careful game programmer. Return the full new contents of each file you change. Only change allowlisted files.',
+      user: `${prompt(req)}\n\nCurrent file contents:\n${current.map((f) => `--- ${f.path}\n${f.content}`).join('\n')}`,
+      input: { req: { ...req, onStep: undefined }, current },
+      schema: ClaudePatch,
+    });
+    req.onStep(out.plan);
+    for (const f of out.files) {
+      // Writes outside the allowlist are dropped here and would also be caught by the scope check.
+      if (!req.allowlist.includes(f.path)) {
+        req.onStep(`[blocked] attempted write to ${f.path}`);
+        continue;
+      }
+      fs.writeFileSync(path.join(req.worktree, f.path), f.content);
+      req.onStep(`[edit] ${f.path}`);
+    }
+    return { plan: out.plan, summary: out.summary, agent: 'claude' };
+  }
+}
+
+// ---------------------------------------------------------------- Mock
+
+/** Canned patches for the planted bugs. "smallest" deliberately includes a plausible-but-wrong fix for score. */
+const CANNED: Record<string, Record<FixRequest['strategy'], { file: string; find: string; replace: string; plan: string }>> = {
+  score: {
+    smallest: {
+      file: 'src/scoring.ts',
+      find: '  scoreCell[0] = score + points;',
+      replace: '  scoreCell[0] = Math.min(255, score + points); // never wrap',
+      plan: 'The repro fails because the byte cell wraps. Clamp the value at 255 so it can never wrap back to a small number.',
+    },
+    root_cause: {
+      file: 'src/scoring.ts',
+      find: '// Keep the score in a single byte cell so leaderboard payloads stay compact.\nconst scoreCell = new Uint8Array(1);\n\nexport function addScore(score: number, points: number): number {\n  scoreCell[0] = score + points;\n  return scoreCell[0];\n}',
+      replace: 'export function addScore(score: number, points: number): number {\n  return score + points;\n}',
+      plan: 'The culprit commit stored the score in a Uint8Array, which wraps at 256. Remove the byte cell and keep the score as a plain number.',
+    },
+  },
+  pause: {
+    smallest: {
+      file: 'src/sim.ts',
+      find: '    p.vy = -(JUMP_VELOCITY * DT) / dt; // scale impulse by the frame step',
+      replace: '    p.vy = dt > 0 ? -(JUMP_VELOCITY * DT) / dt : -JUMP_VELOCITY; // scale impulse by the frame step',
+      plan: 'dt is 0 while paused, so the division produces Infinity. Guard the division when dt is 0.',
+    },
+    root_cause: {
+      file: 'src/sim.ts',
+      find: '    p.vy = -(JUMP_VELOCITY * DT) / dt; // scale impulse by the frame step',
+      replace: '    p.vy = -JUMP_VELOCITY;',
+      plan: 'The jump impulse is already a velocity applied once; scaling it by dt is wrong and divides by zero while paused. Restore the constant impulse.',
+    },
+  },
+};
+
+export class MockFixAgent implements FixAgent {
+  readonly name = 'mock';
+
+  async fix(req: FixRequest): Promise<FixResult> {
+    const key = /score/i.test(req.bugTitle) ? 'score' : /paus|freez/i.test(req.bugTitle) ? 'pause' : '';
+    const patch = key ? CANNED[key][req.strategy] : undefined;
+    const steps = ['Reading the failing test', `Reading culprit diff (${req.allowlist.join(', ')})`];
+    for (const s of steps) {
+      req.onStep(s);
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    const file = patch && path.join(req.worktree, patch.file);
+    if (patch && file && fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes(patch.find)) {
+      req.onStep(`Plan: ${patch.plan}`);
+      fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(patch.find, patch.replace));
+      req.onStep(`[edit] ${patch.file}`);
+      return { plan: patch.plan, summary: `Edited ${patch.file}`, agent: 'mock' };
+    }
+    // Unknown bug: revert the culprit's hunks on the allowlisted files (a real, deterministic strategy).
+    req.onStep('Plan: no canned patch; reverse-apply the culprit diff to the allowlisted files.');
+    await new Promise<void>((resolve, reject) => {
+      const child = execFile('git', ['apply', '-R', '--3way', '-'], { cwd: req.worktree }, (err) => (err ? reject(err) : resolve()));
+      child.stdin!.end(req.culpritDiff);
+    });
+    return { plan: 'Revert the culprit change.', summary: 'Reverted culprit hunks', agent: 'mock' };
+  }
+}

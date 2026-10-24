@@ -1,0 +1,8 @@
+{
+  "good": "67a0b540010ce04414e44005e7d18b123bd62112",
+  "head": "179f1c0784efbae28ac5838797a9256ba2d334fa",
+  "bugs": {
+    "score-reset": "fc7448a553ea8635b76c29614c3fb0b41aa7673c",
+    "pause-jump": "22fa8a43e853ada3aa5bb2f80b2200cbb420338e"
+  }
+}

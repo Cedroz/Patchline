@@ -1,0 +1,71 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, sans-serif;
+  background: #020617;
+  color: #e2e8f0;
+}
+body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+}
+canvas {
+  width: min(800px, 100%);
+  aspect-ratio: 8 / 3;
+  border-radius: 8px;
+  touch-action: none;
+}
+.controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+button {
+  font: inherit;
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: 1px solid #475569;
+  background: #1e293b;
+  color: inherit;
+  cursor: pointer;
+}
+#report-btn {
+  background: #7f1d1d;
+  border-color: #b91c1c;
+}
+.replay-mode .controls,
+.replay-mode .hint {
+  display: none;
+}
+#report-modal {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.6);
+  display: grid;
+  place-items: center;
+}
+#report-modal[hidden] {
+  display: none;
+}
+.modal-card {
+  background: #0f172a;
+  padding: 20px;
+  border-radius: 12px;
+  width: min(420px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+textarea {
+  font: inherit;
+  min-height: 100px;
+  background: #020617;
+  color: inherit;
+  border: 1px solid #475569;
+  border-radius: 8px;
+  padding: 8px;
+}

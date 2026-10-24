@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Blip Runner</title>
+  </head>
+  <body>
+    <h1>Blip Runner</h1>
+    <canvas id="game" width="800" height="300"></canvas>
+    <div class="controls">
+      <button id="btn-jump">Jump</button>
+      <button id="btn-duck">Duck</button>
+      <button id="btn-pause">Pause</button>
+      <button id="report-btn">Report bug</button>
+    </div>
+    <p class="hint">Space / Up to jump, Down to duck, P to pause.</p>
+    <div id="report-modal" hidden>
+      <div class="modal-card">
+        <strong>Report a bug</strong>
+        <textarea id="report-text" placeholder="What happened? Say it however you'd complain."></textarea>
+        <div class="controls">
+          <button id="report-cancel">Cancel</button>
+          <button id="report-send">Send</button>
+        </div>
+        <p id="report-status"></p>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

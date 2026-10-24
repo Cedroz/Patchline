@@ -1,0 +1,10 @@
+node_modules
+dist
+.env
+.env.*
+!.env.example
+.sandbox
+.data
+*.log
+game-base/node_modules
+fixtures/recordings/*.json
