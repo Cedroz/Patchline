@@ -1,4 +1,4 @@
-# Blip Runner
+# Hop Runner
 
 A tiny endless runner. Jump the blocks, grab the coins.
 

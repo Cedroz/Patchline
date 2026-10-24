@@ -177,7 +177,7 @@ patchline/
 patchline-demo-game/ # separate repo, deployed to Vercel
 ```
 
-As built, the demo game repo is generated at `../blip-runner` (the game is called Blip Runner); push it to GitHub under any name.
+As built, the demo game repo is generated at `../hop-runner` (the game is called Hop Runner); push it to GitHub under any name.
 
 ### Agents and permissions
 

@@ -19,7 +19,7 @@ export const config = {
   port: Number(env.PORT ?? 8787),
   publicUrl: env.PUBLIC_URL ?? `http://localhost:${env.PORT ?? 8787}`,
   dashboardUrl: env.DASHBOARD_URL ?? 'http://localhost:5173',
-  gameRepo: path.resolve(ROOT, env.GAME_REPO_PATH ?? '../blip-runner'),
+  gameRepo: path.resolve(ROOT, env.GAME_REPO_PATH ?? '../hop-runner'),
   gameTools: '' as string, // where node_modules for tests live; empty = gameRepo
   gamePush: flag(env.GAME_REPO_PUSH),
   gameLiveUrl: env.GAME_LIVE_URL ?? '',

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Builds the patchline-demo-game repo from game-base/ with a realistic commit history.
 // Two planted bugs land mid-history so `git bisect` has something real to find.
-//   node scripts/make-game-history.mjs [targetDir]   (default: ../blip-runner)
+//   node scripts/make-game-history.mjs [targetDir]   (default: ../hop-runner)
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -9,12 +9,12 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const base = path.join(root, 'game-base');
-const target = path.resolve(process.argv[2] ?? process.env.GAME_REPO_PATH ?? path.join(root, '..', 'blip-runner'));
+const target = path.resolve(process.argv[2] ?? process.env.GAME_REPO_PATH ?? path.join(root, '..', 'hop-runner'));
 
 const AUTHORS = {
-  mina: 'Mina Park <mina@blipzz.dev>',
-  jo: 'Jo Alvarez <jo@blipzz.dev>',
-  sam: 'Sam Okafor <sam@blipzz.dev>',
+  mina: 'Mina Park <mina@example.dev>',
+  jo: 'Jo Alvarez <jo@example.dev>',
+  sam: 'Sam Okafor <sam@example.dev>',
 };
 
 // Each step edits files with exact find/replace (asserted) or writes whole files.
@@ -135,7 +135,7 @@ git(['init', '-q', '-b', 'main']);
 
 const start = Date.now() - (STEPS.length + 1) * 9 * 60_000;
 const bugs = {};
-const first = commit('Blip Runner: seeded sim, canvas renderer, replays, report button', 'mina', new Date(start));
+const first = commit('Hop Runner: seeded sim, canvas renderer, replays, report button', 'mina', new Date(start));
 git(['tag', 'v0.1.0']);
 
 STEPS.forEach((st, i) => {

@@ -14,7 +14,7 @@ assertPolicy();
 
 // Work on a disposable clone so merges never touch the real game repo.
 const real = config.gameRepo;
-const clone = path.join(config.sandbox, 'e2e-game');
+const clone = path.join(config.sandbox, `e2e-${path.basename(real)}`);
 const git = (args: string[], cwd = clone) => execFileSync('git', args, { cwd, stdio: 'pipe' }).toString().trim();
 if (!fs.existsSync(path.join(clone, '.git'))) {
   fs.mkdirSync(config.sandbox, { recursive: true });

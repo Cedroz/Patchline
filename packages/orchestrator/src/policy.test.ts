@@ -60,6 +60,6 @@ describe('verify ranking', () => {
 
 describe('voice', () => {
   it('never speaks handles or emails', () => {
-    expect(scrubNames('reported by @pixelpanda and jo@blipzz.dev')).toBe('reported by a player and a player');
+    expect(scrubNames('reported by @pixelpanda and jo@example.dev')).toBe('reported by a player and a player');
   });
 });

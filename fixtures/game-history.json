@@ -1,8 +1,8 @@
 {
-  "good": "67a0b540010ce04414e44005e7d18b123bd62112",
-  "head": "179f1c0784efbae28ac5838797a9256ba2d334fa",
+  "good": "cb9d4a15deeeeca1897ec3a7de4a4dbe72ed0ba7",
+  "head": "ca5ccbaf9db25a924aa709fca8ce1046a2ea2716",
   "bugs": {
-    "score-reset": "fc7448a553ea8635b76c29614c3fb0b41aa7673c",
-    "pause-jump": "22fa8a43e853ada3aa5bb2f80b2200cbb420338e"
+    "score-reset": "6a772679d81416a321eb3cdb57b40c3c882a9040",
+    "pause-jump": "17faceb627b5660a41bb0b9311122d3f0ad99cdd"
   }
 }

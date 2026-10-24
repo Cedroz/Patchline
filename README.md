@@ -22,8 +22,8 @@ Built at Cal Hacks 13.0 for indie teams of 1 to 5 people with no QA staff, whose
 
 ```bash
 pnpm install
-pnpm make-history                 # builds ../blip-runner, the demo game, with 2 planted bugs mid-history
-pnpm --dir ../blip-runner install
+pnpm make-history                 # builds ../hop-runner, the demo game, with 2 planted bugs mid-history
+pnpm --dir ../hop-runner install
 pnpm check:game                   # spec 1 checks: determinism, repros, bisect finds both culprits
 cp .env.example .env              # USE_MOCKS=1 by default
 pnpm dev                          # orchestrator :8787, dashboard :5173, game :5174
