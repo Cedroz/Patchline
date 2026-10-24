@@ -40,6 +40,7 @@ export function VoicePage() {
         u.onend = () => resolve();
         u.onerror = () => resolve();
         speechSynthesis.speak(u);
+        setTimeout(resolve, 2000 + text.length * 90); // some browsers never fire onend
       });
     } finally {
       setSpeaking(false);
