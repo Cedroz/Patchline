@@ -48,6 +48,7 @@ export function buildServer(p: Pipeline) {
     policy: { grants: GRANTS, readsUntrustedText: READS_UNTRUSTED_TEXT, quarantineRules: RULES.map((r) => r.name) },
     game: { repo: config.gameRepo, liveUrl: config.gameLiveUrl, push: config.gamePush, head: await p.repo.head('main').catch(() => null) },
     publicUrl: config.publicUrl,
+    jiraBrowse: config.jira.mock ? null : `${config.jira.baseUrl}/browse/`,
   }));
 
   // ---------------------------------------------------------- live state

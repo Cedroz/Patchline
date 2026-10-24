@@ -5,7 +5,8 @@
   "packageManager": "pnpm@9.15.0",
   "engines": { "node": ">=22" },
   "scripts": {
-    "dev": "concurrently -n orch,dash -c cyan,magenta \"pnpm --filter @patchline/orchestrator dev\" \"pnpm --filter @patchline/dashboard dev\"",
+    "dev": "concurrently -n orch,dash,game -c cyan,magenta,yellow \"pnpm --filter @patchline/orchestrator dev\" \"pnpm --filter @patchline/dashboard dev\" \"pnpm dev:game\"",
+    "dev:game": "node scripts/dev-game.mjs",
     "dev:orch": "pnpm --filter @patchline/orchestrator dev",
     "dev:dash": "pnpm --filter @patchline/dashboard dev",
     "seed:demo": "pnpm --filter @patchline/orchestrator seed:demo",
