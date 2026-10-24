@@ -1,0 +1,36 @@
+# Patchline Forge app: Jira issue panel (agent trace) + trigger that starts the fix stage.
+# Long work never runs here; Forge only reads from / forwards events to the orchestrator.
+modules:
+  jira:issuePanel:
+    - key: patchline-panel
+      resource: main
+      resolver:
+        function: resolver
+      render: native
+      title: Patchline
+      icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
+  trigger:
+    - key: patchline-issue-updated
+      function: on-issue-updated
+      events:
+        - avi:jira:updated:issue
+  function:
+    - key: resolver
+      handler: index.handler
+    - key: on-issue-updated
+      handler: trigger.run
+resources:
+  - key: main
+    path: src/frontend/index.jsx
+app:
+  runtime:
+    name: nodejs22.x
+  id: ari:cloud:ecosystem::app/REPLACE-ME-run-forge-register
+permissions:
+  scopes:
+    - read:jira-work
+  external:
+    fetch:
+      backend:
+        # The orchestrator's public URL (tunnel or deploy). Update to match ORCH_URL.
+        - '*.trycloudflare.com'

@@ -13,6 +13,8 @@
     "make-history": "node scripts/make-game-history.mjs",
     "fixtures": "pnpm --filter @patchline/orchestrator fixtures",
     "check:game": "pnpm --filter @patchline/orchestrator check:game",
+    "e2e": "pnpm --filter @patchline/orchestrator e2e",
+    "showcase:fetch": "pnpm --filter @patchline/orchestrator showcase:fetch",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck"
   },

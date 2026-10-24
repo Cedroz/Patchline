@@ -5,6 +5,7 @@ import { assertPolicy } from './policy/capabilities';
 import { buildServer } from './server';
 import { buildServices } from './services';
 import { startDiscordSource } from './sources/discord';
+import { SpacetimeMirror } from './store/spacetime';
 
 assertPolicy();
 const services = buildServices(config);
@@ -13,6 +14,13 @@ const app = buildServer(pipeline);
 
 const problem = await pipeline.repo.check();
 if (problem) console.warn(`[warn] ${problem}`);
+
+if (services.store instanceof SpacetimeMirror) {
+  await services.store
+    .connect(process.env.SPACETIME_TOKEN || undefined)
+    .then(() => console.log(`[spacetime] mirroring to ${config.spacetime.uri}/${config.spacetime.db}`))
+    .catch((e) => console.error('[spacetime] connect failed, continuing with local state only:', e.message));
+}
 
 if (services.chat.name === 'discord') {
   startDiscordSource(services.chat, pipeline)

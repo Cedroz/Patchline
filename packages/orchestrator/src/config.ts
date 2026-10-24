@@ -44,7 +44,7 @@ export const config = {
   cartesia: {
     key: env.CARTESIA_API_KEY ?? '',
     voice: env.CARTESIA_VOICE_ID ?? '',
-    model: env.CARTESIA_MODEL ?? 'sonic-2',
+    model: env.CARTESIA_MODEL ?? 'sonic-3.6',
     mock: mocked('CARTESIA', env.CARTESIA_API_KEY, env.CARTESIA_VOICE_ID),
   },
   apify: {

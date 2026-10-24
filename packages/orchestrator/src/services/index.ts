@@ -3,6 +3,7 @@ import type { ChatService, FixAgent, JiraService, LLM, ScraperService, StateStor
 import path from 'node:path';
 import type { Config } from '../config';
 import { MemoryStore } from '../store/memory';
+import { SpacetimeMirror } from '../store/spacetime';
 import { DiscordChat, MockChat } from './chat';
 import { ClaudeFixAgent, DroidFixAgent, MockFixAgent } from './fix-agents';
 import { MockJira, RestJira } from './jira';
@@ -29,8 +30,8 @@ export function buildServices(c: Config): Services {
   else if (c.fixAgent === 'claude' && !c.anthropic.mock) fixAgent = new ClaudeFixAgent(llm);
   else fixAgent = new MockFixAgent();
 
-  // SpacetimeDB client is wired in store/spacetime.ts once the module is published; memory store until then.
-  const store = new MemoryStore(path.join(c.dataDir, 'state.json'));
+  const stateFile = path.join(c.dataDir, 'state.json');
+  const store = c.spacetime.mock ? new MemoryStore(stateFile) : new SpacetimeMirror(c.spacetime.uri, c.spacetime.db, stateFile);
 
   return {
     store,

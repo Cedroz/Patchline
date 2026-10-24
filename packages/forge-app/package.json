@@ -1,0 +1,18 @@
+{
+  "name": "patchline-forge-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Patchline Jira issue panel and agent-fixable trigger",
+  "scripts": {
+    "lint": "forge lint",
+    "deploy": "forge deploy",
+    "install-app": "forge install"
+  },
+  "dependencies": {
+    "@forge/api": "^5.0.0",
+    "@forge/bridge": "^4.0.0",
+    "@forge/react": "^10.0.0",
+    "@forge/resolver": "^1.6.0",
+    "react": "^18.3.1"
+  }
+}
