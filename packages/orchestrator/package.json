@@ -10,6 +10,7 @@
     "fixtures": "tsx src/scripts/make-fixtures.ts",
     "check:game": "tsx src/scripts/check-game.ts",
     "e2e": "tsx src/scripts/e2e.ts",
+    "droid:smoke": "tsx src/scripts/droid-smoke.ts",
     "showcase:fetch": "tsx src/scripts/fetch-showcase.ts",
     "test": "vitest run",
     "typecheck": "tsc -p ."
