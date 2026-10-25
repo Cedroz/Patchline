@@ -1,4 +1,6 @@
 // Orchestrator entry: wires services (real or mock), the pipeline and the HTTP server.
+import fs from 'node:fs';
+import path from 'node:path';
 import { config } from './config';
 import { Pipeline } from './pipeline';
 import { assertPolicy } from './policy/capabilities';
@@ -16,9 +18,17 @@ const problem = await pipeline.repo.check();
 if (problem) console.warn(`[warn] ${problem}`);
 
 if (services.store instanceof SpacetimeMirror) {
+  // The first identity to claim owns the database, so the minted token is kept across restarts.
+  const tokenFile = path.join(config.dataDir, 'spacetime-token');
+  const saved = process.env.SPACETIME_TOKEN || (fs.existsSync(tokenFile) ? fs.readFileSync(tokenFile, 'utf8').trim() : undefined);
   await services.store
-    .connect(process.env.SPACETIME_TOKEN || undefined)
-    .then(() => console.log(`[spacetime] mirroring to ${config.spacetime.uri}/${config.spacetime.db}`))
+    .connect(saved || undefined)
+    .then(async (token) => {
+      fs.mkdirSync(config.dataDir, { recursive: true });
+      fs.writeFileSync(tokenFile, token);
+      await (services.store as SpacetimeMirror).resync();
+      console.log(`[spacetime] mirroring to ${config.spacetime.uri}/${config.spacetime.db}`);
+    })
     .catch((e) => console.error('[spacetime] connect failed, continuing with local state only:', e.message));
 }
 

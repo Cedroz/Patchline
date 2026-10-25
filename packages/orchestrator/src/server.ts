@@ -48,6 +48,8 @@ export function buildServer(p: Pipeline) {
     policy: { grants: GRANTS, readsUntrustedText: READS_UNTRUSTED_TEXT, quarantineRules: RULES.map((r) => r.name) },
     game: { repo: config.gameRepo, liveUrl: config.gameLiveUrl, push: config.gamePush, head: await p.repo.head('main').catch(() => null) },
     publicUrl: config.publicUrl,
+    // When set, dashboards subscribe to SpacetimeDB directly instead of /state/stream.
+    spacetime: store.name === 'spacetimedb' ? { uri: config.spacetime.uri, db: config.spacetime.db } : null,
     jiraBrowse: config.jira.mock ? null : `${config.jira.baseUrl}/browse/`,
   }));
 
@@ -108,6 +110,16 @@ export function buildServer(p: Pipeline) {
 
   app.post<{ Params: { id: string }; Body: { by?: string } }>('/clusters/:id/approve', async (req, reply) => {
     const res = await p.approve(req.params.id, req.body?.by ?? 'dashboard');
+    return res.ok ? res : reply.code(409).send(res);
+  });
+
+  app.post<{ Params: { id: string }; Body: { by?: string; reason?: string } }>('/clusters/:id/revert', async (req, reply) => {
+    const res = await p.revert(req.params.id, req.body?.by ?? 'dashboard', req.body?.reason ?? '');
+    return res.ok ? res : reply.code(409).send(res);
+  });
+
+  app.post<{ Params: { id: string }; Body: { by?: string; reason?: string } }>('/clusters/:id/close', async (req, reply) => {
+    const res = p.close(req.params.id, req.body?.by ?? 'dashboard', req.body?.reason ?? '');
     return res.ok ? res : reply.code(409).send(res);
   });
 

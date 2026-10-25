@@ -15,6 +15,8 @@ export interface LLMRequest<T> {
   input: unknown;
   schema: Parser<T>;
   maxTokens?: number;
+  /** Claude effort level; defaults to medium for json, low for text. */
+  effort?: 'low' | 'medium' | 'high';
 }
 
 export interface LLM {
@@ -86,7 +88,7 @@ export interface ScrapedItem {
 
 export interface ScraperService {
   readonly name: string;
-  fetch(opts: { steamAppId?: string; subreddit?: string; limit: number }): Promise<ScrapedItem[]>;
+  fetch(opts: { steamAppId?: string; subreddit?: string; redditKeywords?: string[]; limit: number }): Promise<ScrapedItem[]>;
 }
 
 /** Shared live state. Real impl is SpacetimeDB; the mock is in-memory with the same tables. */

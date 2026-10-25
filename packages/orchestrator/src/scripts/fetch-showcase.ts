@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from '../config';
-import { ApifyScraper } from '../services/scraper';
+import { ApifyScraper, showcaseKeywords } from '../services/scraper';
 
 if (!config.apify.token) {
   console.error('APIFY_TOKEN is not set.');
@@ -12,7 +12,7 @@ if (!config.apify.token) {
 }
 const scraper = new ApifyScraper(config.apify.token, config.apify.steamActor, config.apify.redditActor);
 const limit = Number(process.env.SHOWCASE_LIMIT ?? 2000);
-const items = await scraper.fetch({ steamAppId: process.env.SHOWCASE_STEAM_APP_ID, subreddit: process.env.SHOWCASE_SUBREDDIT, limit });
+const items = await scraper.fetch({ steamAppId: process.env.SHOWCASE_STEAM_APP_ID, subreddit: process.env.SHOWCASE_SUBREDDIT, redditKeywords: showcaseKeywords(), limit });
 const dir = path.join(config.fixtures, 'showcase');
 fs.mkdirSync(dir, { recursive: true });
 for (const source of ['steam', 'reddit'] as const) {

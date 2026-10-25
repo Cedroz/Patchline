@@ -221,7 +221,7 @@ export const MOCK_HANDLERS: Record<string, Handler> = {
   'intake.classify': ({ report, clusters }: { report: { text: string }; clusters: { id: string; title: string }[] }) => {
     const topic = topicOf(report.text);
     if (topic === 'other' || (NOT_BUG.test(report.text) && !/bug|broke|broken|crash|freez|reset/i.test(report.text))) {
-      return { is_bug: false, cluster_id: 'new', title: 'Not a bug', summary: 'Feedback or feature request', repro_steps: [], platform: 'web', version: 'unknown', severity: 'low' };
+      return { is_bug: false, cluster_id: 'new', title: 'Not a bug', summary: 'Feedback or feature request', repro_steps: [], platform: 'web', version: 'unknown', severity: 'low', sim_testable: false };
     }
     const t = TOPICS[topic];
     const existing = clusters.find((c) => c.title === t.title);
@@ -234,6 +234,7 @@ export const MOCK_HANDLERS: Record<string, Handler> = {
       platform: /phone|mobile|iphone|android|safari/i.test(report.text) ? 'mobile' : 'web',
       version: 'unknown',
       severity: t.severity,
+      sim_testable: topic !== 'perf',
     };
   },
 
@@ -247,7 +248,16 @@ export const MOCK_HANDLERS: Record<string, Handler> = {
     return { tests: BREAKERS[topic] ?? [] };
   },
 
-  'voice.brief': ({ clusters }: { clusters: { title: string; stage: string; report_count: number; severity: string }[] }) => {
+  'docs.writeup': ({ bug, repro, culprit, fix }: { bug: { title: string; summary: string; reports: number; severity: string }; repro: { interpretation: string; invariant: string }; culprit: { sha: string; message: string; files: string[] }; fix: { strategy: string; gates: { breakers: string } } }) => ({
+    what: bug.summary,
+    impact: `${bug.reports} player report(s), rated ${bug.severity}.`,
+    root_cause: `Commit ${culprit.sha} "${culprit.message}" (${culprit.files.join(', ')}) breaks the ${repro.invariant} invariant.`,
+    fix: `The ${fix.strategy.replace('_', ' ')} candidate changes the culprit code so the invariant holds again.`,
+    verification: `The repro (${repro.interpretation}) now passes, the full suite passes, and ${fix.gates.breakers} breaker tests survived.`,
+    risk: 'None known beyond what the breaker tests cover.',
+  }),
+
+  'voice.brief':({ clusters }: { clusters: { title: string; stage: string; report_count: number; severity: string }[] }) => {
     if (!clusters.length) return 'All quiet. No open bug reports right now.';
     const open = clusters.filter((c) => c.stage !== 'merged');
     const waiting = clusters.filter((c) => c.stage === 'awaiting_approval');

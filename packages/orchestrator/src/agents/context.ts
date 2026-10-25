@@ -34,6 +34,7 @@ export function buildTools(deps: { llm: LLM; jira: JiraService; chat: ChatServic
     sandbox_bisect: (opts: Omit<Parameters<typeof bisect>[1], 'sandbox'>) => bisect(repo, { ...opts, sandbox: config.sandbox }),
     repo_merge: (branch: string, msg: string) => repo.merge(branch, msg),
     repo_push: () => repo.push(),
+    repo_revert: (sha: string, msg: string) => repo.revert(sha, msg),
     fix_agent: fixAgent.fix.bind(fixAgent),
   };
 }

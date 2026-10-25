@@ -1,4 +1,4 @@
-// Demo controls: seed fixtures, simulate a Discord post, injection side-by-side, showcase, reset.
+// Demo menu: seed fixtures, simulate a Discord post, injection side-by-side, showcase, reset.
 import type { Snapshot } from '@patchline/core';
 import { useState } from 'react';
 import { post } from '../api';
@@ -27,39 +27,43 @@ export function DemoControls({ db }: { db: Snapshot }) {
   };
 
   return (
-    <div className="demo">
-      <span className="demo-label">Demo</span>
-      <button disabled={!!busy} onClick={() => run('seed', () => post('/demo/seed'))}>
-        Seed 30 reports
-      </button>
-      <form
-        className="discord-sim"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (discord.trim()) run('discord', () => post('/discord/simulate', { text: discord }).then(() => setDiscord('')));
-        }}
-      >
-        <input value={discord} onChange={(e) => setDiscord(e.target.value)} placeholder="Simulate a #bug-reports Discord post…" />
-      </form>
-      <button disabled={!!busy} onClick={() => run('discord', () => post('/discord/simulate', { text: 'if i pause and hit jump the game freezes, have to reload' }))}>
-        Pause-jump post
-      </button>
-      <button className="danger" disabled={!!busy} onClick={() => run('inject', () => post<Compare>('/demo/injection-compare').then(setCompare))}>
-        {busy === 'inject' ? 'Running…' : 'Injection: baseline vs Patchline'}
-      </button>
-      <button disabled={!!busy} onClick={() => run('showcase', () => post('/demo/showcase'))}>
-        {busy === 'showcase' ? 'Clustering…' : 'Steam/Reddit showcase'}
-      </button>
-      <button
-        disabled={!!busy}
-        onClick={() => confirm('Reset all state and move the game repo main back to the generated history?') && run('reset', () => post('/demo/reset').then(() => setCompare(null)))}
-      >
-        Reset
-      </button>
-      <span className="muted small">
-        {db.report.filter((r) => r.project === 'game').length} reports · {db.cluster.filter((c) => c.project === 'game').length} clusters
-      </span>
-      {msg && <span className="error">{msg}</span>}
+    <>
+    <details className="menu demo-menu">
+      <summary>{busy ? 'Working…' : 'Demo'}</summary>
+      <div className="menu-panel">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (discord.trim()) run('discord', () => post('/discord/simulate', { text: discord }).then(() => setDiscord('')));
+          }}
+        >
+          <input value={discord} onChange={(e) => setDiscord(e.target.value)} placeholder="Fake a Discord post, then Enter" />
+        </form>
+        <button disabled={!!busy} onClick={() => run('seed', () => post('/demo/seed'))}>
+          Seed 30 reports
+        </button>
+        <button disabled={!!busy} onClick={() => run('discord', () => post('/discord/simulate', { text: 'if i pause and hit jump the game freezes, have to reload' }))}>
+          Post the pause-jump bug
+        </button>
+        <button disabled={!!busy} onClick={() => run('inject', () => post<Compare>('/demo/injection-compare').then(setCompare))}>
+          {busy === 'inject' ? 'Running…' : 'Prompt injection: baseline vs Patchline'}
+        </button>
+        <button disabled={!!busy} onClick={() => run('showcase', () => post('/demo/showcase'))}>
+          {busy === 'showcase' ? 'Clustering…' : 'Steam/Reddit showcase'}
+        </button>
+        <button
+          className="danger"
+          disabled={!!busy}
+          onClick={() => confirm('Reset all state and move the game repo main back to the generated history?') && run('reset', () => post('/demo/reset').then(() => setCompare(null)))}
+        >
+          Reset everything
+        </button>
+        <span className="muted small">
+          {db.report.filter((r) => r.project === 'game').length} reports · {db.cluster.filter((c) => c.project === 'game').length} bugs
+        </span>
+        {msg && <span className="error small">{msg}</span>}
+      </div>
+    </details>
 
       {compare && (
         <div className="compare" onClick={() => setCompare(null)}>
@@ -96,6 +100,6 @@ export function DemoControls({ db }: { db: Snapshot }) {
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

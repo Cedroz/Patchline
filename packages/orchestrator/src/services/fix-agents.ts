@@ -2,8 +2,9 @@
 // done by the fix stage with git (never trusted to the agent). Droid is the primary; Claude and Mock
 // sit behind the same interface as fallbacks.
 import type { FixAgent, FixRequest, FixResult, LLM } from '@patchline/core';
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { z } from 'zod/v4';
 
@@ -17,6 +18,8 @@ Bug: ${req.bugTitle}
 The failing repro test is ${req.failingTestPath}. Do not edit it or any other test file.
 You may only edit these files: ${req.allowlist.join(', ')}.
 Run the repro with: node node_modules/vitest/vitest.mjs run ${req.failingTestPath}   (may be unavailable; reason from code if so)
+Allowed commands: that vitest command and read-only git (git status, git diff, git log, git show), one command at a time.
+Any other command, or an edit to any other file, is refused and ends your run. Reading files needs no permission.
 
 Failing test:
 \`\`\`ts
@@ -33,8 +36,26 @@ First state a short plan, then make the edit, then summarize what you changed in
 
 // ---------------------------------------------------------------- Droid
 
+/** Commands Droid may run: the repro/suite via vitest, and read-only git. Anything chained (&&, ;, |) is refused. */
+const ALLOWED_COMMAND = /^(node\s+node_modules[\\/]vitest[\\/]vitest\.mjs\s+run\b|npx vitest\b|pnpm (exec )?vitest\b|git (status|diff|log|show)\b)[^;&|`$<>]*$/;
+
+/** The SDK spawns `droid` without a shell. On Windows the npm `droid` is a .cmd shim, which that can't run, so use
+ *  DROID_EXEC_PATH or the native droid.exe the CLI package ships (found through the CLI's own platform.js). */
+function droidExecPath(): string | undefined {
+  if (process.env.DROID_EXEC_PATH) return process.env.DROID_EXEC_PATH;
+  if (process.platform !== 'win32') return undefined;
+  try {
+    const root = execFileSync('npm', ['root', '-g'], { shell: true, encoding: 'utf8' }).trim();
+    const platform = createRequire(import.meta.url)(path.join(root, '@factory', 'cli', 'platform.js')) as { getBinaryPathWithInfo(): { path: string } | null };
+    return platform.getBinaryPathWithInfo()?.path;
+  } catch {
+    return undefined;
+  }
+}
+
 export class DroidFixAgent implements FixAgent {
   readonly name = 'droid';
+  private execPath?: string;
   constructor(private apiKey: string) {}
 
   async fix(req: FixRequest): Promise<FixResult> {
@@ -47,19 +68,26 @@ export class DroidFixAgent implements FixAgent {
     const session = await createSession({
       cwd: req.worktree,
       apiKey: this.apiKey,
+      execPath: (this.execPath ??= droidExecPath() ?? ''),
       autonomyLevel: AutonomyLevel.Off, // every action goes through our permission handler
       permissionHandler({ toolUses, options }) {
-        // Least privilege, enforced in code: edits only to allowlisted files; commands only to run vitest.
-        const ok = toolUses.every((u) => {
-          const d = u.details as { type: string; filePath?: string; command?: string };
+        // Least privilege, enforced in code: edits only to allowlisted files; commands only vitest or read-only git.
+        // A Script batches several tool calls; each inner call is held to the same rules.
+        type Conf = { type: string; filePath?: string; command?: string; fullCommand?: string; calls?: { confirmation?: Conf }[] };
+        const cmd = (d: Conf) => (d.fullCommand || d.command || '').trim(); // command is just the program; fullCommand has the args
+        const check = (d: Conf): boolean => {
+          if (d.type === ToolConfirmationType.Script) return (d.calls ?? []).every((c) => !c.confirmation || check(c.confirmation));
           if (d.type === ToolConfirmationType.Edit || d.type === ToolConfirmationType.Create || d.type === ToolConfirmationType.ApplyPatch) {
             return !!d.filePath && allowed.has(norm(path.isAbsolute(d.filePath) ? d.filePath : path.join(req.worktree, d.filePath)));
           }
-          if (d.type === ToolConfirmationType.Execute) return !!d.command && /^(node\s+node_modules[\\/]vitest|npx vitest|pnpm (exec )?vitest)\b/.test(d.command.trim());
+          if (d.type === ToolConfirmationType.Execute) return ALLOWED_COMMAND.test(cmd(d));
           return false;
-        });
+        };
+        const ok = toolUses.every((u) => check(u.details as Conf));
         const want = ok ? ToolConfirmationOutcome.ProceedOnce : ToolConfirmationOutcome.Cancel;
-        const verdict = toolUses.map((u) => `${(u.details as { type: string }).type} ${(u.details as { filePath?: string }).filePath ?? (u.details as { command?: string }).command ?? ''}`).join(', ');
+        const describe = (d: Conf): string =>
+          d.type === ToolConfirmationType.Script ? `script[${(d.calls ?? []).map((c) => (c.confirmation ? describe(c.confirmation) : 'read')).join('; ')}]` : `${d.type} ${d.filePath ?? cmd(d)}`.trim();
+        const verdict = toolUses.map((u) => describe(u.details as Conf)).join(', ');
         req.onStep(`[permission] ${ok ? 'allow' : 'DENY'}: ${verdict}`);
         return options.some((o) => o.value === want) ? want : ToolConfirmationOutcome.Cancel;
       },

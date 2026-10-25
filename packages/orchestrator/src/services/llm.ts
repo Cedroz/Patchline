@@ -35,7 +35,7 @@ export class ClaudeLLM implements LLM {
       max_tokens: req.maxTokens ?? 16000,
       betas: ['server-side-fallback-2026-07-01'],
       fallbacks: 'default',
-      output_config: { effort: 'medium', format: betaZodOutputFormat(req.schema as unknown as ZodType) },
+      output_config: { effort: req.effort ?? 'medium', format: betaZodOutputFormat(req.schema as unknown as ZodType) },
       system: req.system,
       messages: [{ role: 'user', content: req.user }],
     });
@@ -52,7 +52,7 @@ export class ClaudeLLM implements LLM {
       max_tokens: req.maxTokens ?? 4000,
       betas: ['server-side-fallback-2026-07-01'],
       fallbacks: 'default',
-      output_config: { effort: 'low' },
+      output_config: { effort: req.effort ?? 'low' },
       system: req.system,
       messages: [{ role: 'user', content: req.user }],
     });
@@ -75,7 +75,13 @@ export class MockLLM implements LLM {
 
   async json<T>(req: LLMRequest<T>): Promise<T> {
     const rec = this.recorded(req.task, req.user);
-    if (rec !== undefined) return req.schema.parse(rec);
+    if (rec !== undefined) {
+      try {
+        return req.schema.parse(rec);
+      } catch {
+        // Recorded before a schema change; fall through to the handler.
+      }
+    }
     const handler = MOCK_HANDLERS[req.task];
     if (!handler) throw new Error(`MockLLM has no handler for task ${req.task}`);
     await new Promise((r) => setTimeout(r, 300 + Math.random() * 500)); // feel like a model call on the board

@@ -1,30 +1,31 @@
 // Write-through mirror into SpacetimeDB. Reads stay local (MemoryStore); every change is forwarded to the
 // module's upsert reducers so dashboards (and the Forge panel) can subscribe to SpacetimeDB directly.
 //
-// VERIFY AT THE SPACETIMEDB WORKSHOP before relying on this: the HTTP reducer-call route
-// (POST {uri}/v1/database/{db}/call/{reducer}), the identity route (POST {uri}/v1/identity), and the
-// SATS-JSON encoding of option fields ({"some": v} / {"none": []}). If any differ, only this file changes.
+// Checked against a local SpacetimeDB 2.13: POST {uri}/v1/identity mints a token; reducers are called at
+// POST {uri}/v1/database/{db}/call/{name} by their snake_case canonical name (claimOwner -> claim_owner);
+// option fields are SATS-JSON ({"some": v} / {"none": []}).
 import type { RowChange, Snapshot, StateStore, TableName, Tables } from '@patchline/core';
 import PQueue from 'p-queue';
 import { MemoryStore } from './memory';
 
+/** Upsert reducer per table, by canonical name (the module exports upsertReport etc.). */
 const REDUCER: Record<TableName, string> = {
-  report: 'upsertReport',
-  cluster: 'upsertCluster',
-  pipeline: 'upsertPipeline',
-  agent_run: 'upsertAgentRun',
-  repro_attempt: 'upsertReproAttempt',
-  fix_candidate: 'upsertFixCandidate',
-  breaker_test: 'upsertBreakerTest',
-  audit_event: 'upsertAuditEvent',
-  quarantine: 'upsertQuarantine',
+  report: 'upsert_report',
+  cluster: 'upsert_cluster',
+  pipeline: 'upsert_pipeline',
+  agent_run: 'upsert_agent_run',
+  repro_attempt: 'upsert_repro_attempt',
+  fix_candidate: 'upsert_fix_candidate',
+  breaker_test: 'upsert_breaker_test',
+  audit_event: 'upsert_audit_event',
+  quarantine: 'upsert_quarantine',
 };
 
 /** Columns declared t.option(...) in packages/spacetime/src/index.ts. */
 const OPTIONAL: Record<TableName, string[]> = {
   report: ['replay_id', 'cluster_id', 'external_ref'],
   cluster: ['jira_key'],
-  pipeline: ['culprit_commit', 'culprit_json', 'repro_test_path', 'expected_error', 'winner_candidate_id', 'merged_sha', 'note'],
+  pipeline: ['culprit_commit', 'culprit_json', 'repro_test_path', 'expected_error', 'winner_candidate_id', 'merged_sha', 'note', 'writeup_json'],
   agent_run: ['cluster_id', 'lane', 'ended_at'],
   repro_attempt: [],
   fix_candidate: ['scope_reason', 'repro_pass', 'suite_pass', 'breaker_total', 'breaker_pass_count', 'score'],
@@ -59,7 +60,8 @@ export class SpacetimeMirror implements StateStore {
     return this.uri.replace(/^ws/, 'http').replace(/\/$/, '');
   }
 
-  /** Get an identity token and claim write ownership of the module. Call once at boot. */
+  /** Get an identity token and claim write ownership of the module. Call once at boot. The first identity to
+   *  claim owns the database for good, so callers must keep the returned token and pass it on restart. */
   async connect(token?: string) {
     if (token) this.token = token;
     else {
@@ -67,7 +69,7 @@ export class SpacetimeMirror implements StateStore {
       if (!res.ok) throw new Error(`spacetime identity: ${res.status} ${await res.text()}`);
       this.token = ((await res.json()) as { token: string }).token;
     }
-    await this.call('claimOwner', []);
+    if (!(await this.call('claim_owner', []))) throw new Error(this.lastError);
     return this.token;
   }
 
@@ -81,12 +83,23 @@ export class SpacetimeMirror implements StateStore {
       this.lastError = `${reducer}: ${res.status} ${await res.text()}`;
       console.error(`[spacetime] ${this.lastError}`);
     }
+    return res.ok;
+  }
+
+  /** Make SpacetimeDB match local state (loaded from the state file at boot, so never forwarded). Call after connect. */
+  async resync() {
+    const snap = this.local.snapshot() as unknown as Record<TableName, unknown[]>;
+    this.forward({ op: 'reset' } as RowChange);
+    for (const table of Object.keys(REDUCER) as TableName[]) {
+      for (const row of snap[table] ?? []) this.forward({ op: 'upsert', table, row } as RowChange);
+    }
+    await this.q.onIdle();
   }
 
   private forward(c: RowChange) {
     void this.q.add(() => {
-      if (c.op === 'reset') return this.call('resetAll', []);
-      if (c.op === 'delete') return this.call('deleteRow', [c.table, c.key]);
+      if (c.op === 'reset') return this.call('reset_all', []);
+      if (c.op === 'delete') return this.call('delete_row', [c.table, c.key]);
       return this.call(REDUCER[c.table], [encode(c.table, c.row as unknown as Record<string, unknown>)]);
     });
   }

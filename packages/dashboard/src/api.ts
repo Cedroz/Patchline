@@ -20,6 +20,7 @@ export interface Meta {
   game: { repo: string; liveUrl: string; push: boolean; head: string | null };
   publicUrl: string;
   jiraBrowse: string | null;
+  spacetime: { uri: string; db: string } | null;
 }
 
 export const maskName = (name: string) => (name ? `${name.slice(0, 1)}${'•'.repeat(Math.max(2, Math.min(6, name.length - 1)))}` : 'anon');

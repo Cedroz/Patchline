@@ -11,15 +11,16 @@ export const GRANTS = {
   fix: ['repo_read', 'sandbox_branch', 'sandbox_run_tests', 'sandbox_commit', 'sandbox_diff', 'fix_agent', 'jira_comment'],
   breaker: ['llm_json', 'sandbox_worktree', 'sandbox_write_test', 'sandbox_run_tests', 'sandbox_remove'],
   verify: ['sandbox_write_test', 'sandbox_run_tests'],
-  merger: ['repo_merge', 'repo_push', 'sandbox_worktree', 'sandbox_write_test', 'sandbox_run_tests', 'sandbox_remove', 'jira_comment', 'jira_transition', 'chat_reply'],
+  merger: ['repo_merge', 'repo_revert', 'repo_push', 'sandbox_worktree', 'sandbox_write_test', 'sandbox_run_tests', 'sandbox_remove', 'jira_comment', 'jira_transition', 'chat_reply'],
   scraper: ['llm_json'],
   voice: ['llm_json', 'llm_text'],
+  docs: ['llm_json', 'jira_comment'], // reads intake's summary + verified facts, never raw player text; prose only
   baseline: ['*'], // demo only, and only ever against a throwaway clone with no remote
 } as const satisfies Record<AgentName, readonly string[]>;
 
 /** Which agents read untrusted player text. None of them may hold a code or git tool. */
 export const READS_UNTRUSTED_TEXT: AgentName[] = ['quarantine', 'intake', 'repro', 'scraper'];
-const CODE_TOOLS = ['repo_merge', 'repo_push', 'sandbox_commit', 'sandbox_diff', 'fix_agent', 'sandbox_branch'];
+const CODE_TOOLS = ['repo_merge', 'repo_revert', 'repo_push', 'sandbox_commit', 'sandbox_diff', 'fix_agent', 'sandbox_branch'];
 
 export type ToolName = Exclude<(typeof GRANTS)[keyof typeof GRANTS][number], '*'>;
 

@@ -12,7 +12,7 @@ export const STAGES = [
   'awaiting_approval',
   'merged',
 ] as const;
-export const EXIT_STAGES = ['not_reproducible', 'escalated'] as const;
+export const EXIT_STAGES = ['not_reproducible', 'escalated', 'duplicate', 'reverted', 'closed'] as const;
 export type Stage = (typeof STAGES)[number] | (typeof EXIT_STAGES)[number];
 
 export type Source = 'ingame' | 'discord' | 'steam' | 'reddit' | 'fixture';
@@ -47,6 +47,16 @@ export interface Cluster {
   labels: string[];
 }
 
+/** Plain-English bug write-up. Claude drafts it from facts the deterministic stages already proved. */
+export interface Writeup {
+  what: string; // the bug as a player sees it
+  impact: string; // who hits it and how badly
+  root_cause: string; // what the culprit commit changed and why that breaks the invariant
+  fix: string; // what the winning diff changes
+  verification: string; // how we know: repro, suite, breakers
+  risk: string; // what the fix could still miss
+}
+
 export interface Culprit {
   sha: string;
   message: string;
@@ -65,6 +75,8 @@ export interface Pipeline {
   winner_candidate_id?: string;
   merged_sha?: string;
   note?: string;
+  writeup_json?: string; // Writeup, drafted by the docs agent once a fix is verified
+
   updated_at: number;
 }
 
@@ -163,7 +175,8 @@ export type AgentName =
   | 'merger'
   | 'baseline'
   | 'scraper'
-  | 'voice';
+  | 'voice'
+  | 'docs';
 
 export interface Tables {
   report: Report;

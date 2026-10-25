@@ -12,7 +12,7 @@ export function Showcase({ db }: { db: Snapshot }) {
         {items.length.toLocaleString()} public reviews and posts → {clusters.length} bug clusters
       </h2>
       <p className="muted">
-        Pulled with Apify (Steam reviews + Reddit), clustered by the same intake prompt. No repro here: we do not have that game's repo. Usernames are masked. {bugs} items were
+        Pulled with Apify (Steam discussions + Reddit), clustered by the same intake prompt. No repro here: we do not have that game's repo. Usernames are masked. {bugs} items were
         bug reports; the rest were opinions or feature requests.
       </p>
       <div className="showcase">
@@ -28,7 +28,9 @@ export function Showcase({ db }: { db: Snapshot }) {
               <div className="bar">
                 <div style={{ width: `${(c.report_count / max) * 100}%` }} />
               </div>
-              <div className="muted small">{c.report_count} reports</div>
+              <div className="muted small">
+                {c.report_count} report{c.report_count === 1 ? '' : 's'}
+              </div>
               {samples.map((s) => (
                 <p key={s.id} className="small quote">
                   <span className={`src src-${s.source}`}>{s.source}</span> {maskName(s.author)}: “{s.text.slice(0, 160)}”

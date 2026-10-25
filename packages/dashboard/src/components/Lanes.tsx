@@ -23,7 +23,7 @@ export function Lanes({ db, onOpen }: { db: Snapshot; onOpen: (id: string) => vo
   return (
     <aside className="lanes">
       <h3>
-        Agents <span className="count">{db.agent_run.filter((r) => r.status === 'running').length} running</span>
+        Activity <span className="count">{db.agent_run.filter((r) => r.status === 'running').length} running</span>
       </h3>
       {runs.map((r) => (
         <div key={r.id} onClick={() => r.cluster_id && onOpen(r.cluster_id)} className={r.cluster_id ? 'clickable' : ''}>

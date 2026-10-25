@@ -54,6 +54,7 @@ export async function quarantine(text: string, llm_json: LLM['json']): Promise<Q
     input: { text: clean },
     schema: ClassifierSchema,
     maxTokens: 400,
+    effort: 'low', // runs on every report before anything else; a yes/no classifier
   });
   if (classifier.suspicious) return { clean: '', cuts: [...cuts, { text: clean, reason: `classifier: ${classifier.reason}` }], classifier };
   return { clean, cuts, classifier };

@@ -176,6 +176,25 @@ export class GameRepo {
     }) as Promise<string>;
   }
 
+  /** Undo a Patchline merge on main with a new revert commit (history is kept, nothing is force-pushed). */
+  revert(mergeSha: string, message: string): Promise<string> {
+    return this.gitLock.add(async () => {
+      const dirty = await this.git(['status', '--porcelain', '--untracked-files=no']);
+      if (dirty) throw new Error(`game repo has uncommitted changes; refusing to revert:
+${dirty}`);
+      const cur = await this.git(['rev-parse', '--abbrev-ref', 'HEAD']);
+      if (cur !== 'main') await this.git(['checkout', '-q', 'main']);
+      const parents = (await this.git(['rev-list', '--parents', '-n', '1', mergeSha])).split(' ').length - 1;
+      const r = await this.tryGit(['revert', '--no-commit', ...(parents > 1 ? ['-m', '1'] : []), mergeSha]);
+      if (r.code !== 0) {
+        await this.tryGit(['revert', '--abort']);
+        throw new Error(`git revert failed (later commits may touch the same lines): ${(r.stderr || r.stdout).slice(0, 500)}`);
+      }
+      await this.git(['-c', 'user.name=Patchline', '-c', 'user.email=bot@patchline.dev', 'commit', '-q', '-m', message]);
+      return this.git(['rev-parse', 'HEAD']);
+    }) as Promise<string>;
+  }
+
   async push(): Promise<string> {
     const r = await this.tryGit(['push', 'origin', 'main']);
     if (r.code !== 0) throw new Error(r.stderr || r.stdout);

@@ -64,6 +64,9 @@ for (const c of clusters) {
   if (pipe.stage !== 'awaiting_approval') continue;
   const cands = svc.store.list('fix_candidate', (x) => x.cluster_id === c.id);
   for (const x of cands) log(`   candidate ${x.n} ${x.strategy}: ${x.status} repro=${x.repro_pass} suite=${x.suite_pass} breakers=${x.breaker_pass_count}/${x.breaker_total} diff=${x.diff_lines} score=${x.score}`);
+  const w = pipe.writeup_json ? (JSON.parse(pipe.writeup_json) as { root_cause: string }) : null;
+  log(`   write-up: ${w ? w.root_cause.slice(0, 140) : 'MISSING'}`);
+  if (!w) failures++;
   const res = await p.approve(c.id, 'e2e');
   log(`approve ${c.title}: ${res.ok ? `merged ${res.sha?.slice(0, 7)}` : res.reason}`);
   if (!res.ok) failures++;
@@ -73,5 +76,14 @@ const final = clusters.map((c) => ({ title: c.title, stage: svc.store.get('pipel
 console.table(final);
 const merged = final.filter((f) => f.stage === 'merged').length;
 if (merged < 2) failures++;
+
+// Revert the most recent merge: a new revert commit on main, suite re-run, issue reopened.
+const last = clusters.map((c) => svc.store.get('pipeline', c.id)!).filter((x) => x.stage === 'merged').sort((a, b) => b.updated_at - a.updated_at)[0];
+if (last) {
+  const rv = await p.revert(last.cluster_id, 'e2e', 'revert check');
+  const after = svc.store.get('pipeline', last.cluster_id)!;
+  log(`revert ${last.merged_sha?.slice(0, 7)}: ${rv.ok ? `reverted in ${rv.sha?.slice(0, 7)}; stage=${after.stage}; ${after.note}` : rv.reason}`);
+  if (!rv.ok || after.stage !== 'reverted' || /FAILS/.test(after.note ?? '')) failures++;
+}
 log(failures ? `FAILED (${failures})` : `OK: ${merged} bugs fixed end to end`);
 process.exit(failures ? 1 : 0);

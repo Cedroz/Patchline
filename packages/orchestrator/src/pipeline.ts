@@ -1,5 +1,5 @@
 // Pipeline state machine: reported -> clustered -> reproducing -> confirmed -> bisecting -> culprit_found
-// -> fixing -> verifying -> awaiting_approval -> merged (exits: not_reproducible, escalated).
+// -> fixing -> verifying -> awaiting_approval -> merged (exits: not_reproducible, escalated, duplicate).
 // The orchestrator moves stages; agents do the work with only their granted tools.
 import type { Cluster, Culprit, Pipeline as PipelineRow, ReplayBlob, Report, Source, Stage } from '@patchline/core';
 import fs from 'node:fs';
@@ -9,9 +9,10 @@ import { runBaseline } from './agents/baseline';
 import { runBisect } from './agents/bisect';
 import { runBreaker } from './agents/breaker';
 import { buildTools, ctxFor, type AllTools } from './agents/context';
+import { runDocs, writeupText } from './agents/docs';
 import { runFixTournament } from './agents/fix';
-import { runIntake } from './agents/intake';
-import { runMerge } from './agents/merger';
+import { higherSeverity, runIntake } from './agents/intake';
+import { runMerge, runRevert } from './agents/merger';
 import { runRepro } from './agents/repro';
 import { runShowcase } from './agents/scraper';
 import { runVerify } from './agents/verify';
@@ -21,6 +22,7 @@ import { GameRepo } from './game/repo';
 import { id } from './ids';
 import { quarantine } from './policy/quarantine';
 import type { Services } from './services';
+import { showcaseKeywords } from './services/scraper';
 
 export interface IngestInput {
   source: Source;
@@ -179,12 +181,35 @@ export class Pipeline {
 
     this.setStage(clusterId, 'bisecting');
     const culprit = await runBisect(this.ctx('bisect'), cluster, out.testCode!, out.expectedCode!, good);
+    // A closed bug never absorbs a new one: if players hit it again, the new cluster carries on as its own bug.
+    const same = this.store.list('pipeline', (p) => p.cluster_id !== clusterId && p.stage !== 'duplicate' && p.stage !== 'closed' && p.culprit_commit === culprit.sha && p.expected_error === out.expectedCode)[0];
+    if (same) return this.mergeDuplicate(cluster, this.store.get('cluster', same.cluster_id)!, culprit, out.expectedCode!);
     this.setStage(clusterId, 'culprit_found', { culprit_commit: culprit.sha, culprit_json: JSON.stringify(culprit) });
     if (cluster.jira_key) {
       await this.svc.jira.comment(cluster.jira_key, `git bisect: first bad commit is ${culprit.sha.slice(0, 7)} "${culprit.message}" by ${culprit.author.replace(/<.*>/, '').trim()}.\n\n\`\`\`diff\n${culprit.diff.slice(0, 4000)}\n\`\`\``);
       if (this.config.autoAgentFixable) await this.svc.jira.addLabel(cluster.jira_key, 'agent-fixable');
     }
     // The fix stage is triggered from scheduleRepro's finally, once this job releases the cluster.
+  }
+
+  // Same culprit commit + same invariant = same bug, whatever intake thought of the wording. Decided in plain code
+  // from the bisect result; the duplicate's reports move to the surviving cluster and it leaves the board.
+  private async mergeDuplicate(dup: Cluster, into: Cluster, culprit: Culprit, code: string) {
+    const reports = this.store.list('report', (r) => r.cluster_id === dup.id);
+    for (const r of reports) this.store.update('report', r.id, { cluster_id: into.id });
+    this.store.update('cluster', into.id, {
+      report_count: into.report_count + reports.length,
+      last_seen: Math.max(into.last_seen, dup.last_seen),
+      severity: higherSeverity(into.severity, dup.severity),
+    });
+    const ref = into.jira_key ?? into.title;
+    this.setStage(dup.id, 'duplicate', { culprit_commit: culprit.sha, expected_error: code, note: `Duplicate of ${ref}` });
+    this.audit.event('system', 'cluster.duplicate', { clusterId: dup.id, inputs: { into: into.id, culprit: culprit.sha, invariant: code }, output: { moved_reports: reports.length } });
+    if (dup.jira_key) {
+      await this.svc.jira.comment(dup.jira_key, `Duplicate of ${ref}: its repro bisects to the same commit (${culprit.sha.slice(0, 7)}) and breaks the same invariant (${code}). Reports moved there.`);
+      await this.svc.jira.transition(dup.jira_key, 'Done');
+    }
+    if (into.jira_key) await this.svc.jira.comment(into.jira_key, `Merged ${reports.length} report(s) from ${dup.jira_key ?? dup.title}: same culprit commit and invariant.`);
   }
 
   // ------------------------------------------------------------ fix -> verify
@@ -197,7 +222,7 @@ export class Pipeline {
 
   scheduleFix(clusterId: string, trigger: string): { ok: boolean; reason?: string } {
     const stage = this.stage(clusterId);
-    if (stage !== 'culprit_found' && stage !== 'escalated') return { ok: false, reason: `cluster is at ${stage}, needs culprit_found` };
+    if (stage !== 'culprit_found' && stage !== 'escalated' && stage !== 'reverted') return { ok: false, reason: `cluster is at ${stage}, needs culprit_found` };
     if (this.busy.has(clusterId)) return { ok: false, reason: 'already running' };
     this.busy.add(clusterId);
     this.audit.event('system', 'fix.trigger', { clusterId, inputs: { trigger } });
@@ -241,6 +266,26 @@ export class Pipeline {
       );
     }
     for (const r of runs) if (r.candidate.id !== winner.id) await this.repo.removeWorktree(r.worktree);
+    await this.writeUp(clusterId);
+  }
+
+  /** Plain-English write-up from the verified facts. Never blocks approval: without it the board shows the facts alone. */
+  private async writeUp(clusterId: string) {
+    const cluster = this.store.get('cluster', clusterId)!;
+    const pipe = this.store.get('pipeline', clusterId)!;
+    const winner = pipe.winner_candidate_id ? this.store.get('fix_candidate', pipe.winner_candidate_id) : undefined;
+    const repro = this.store.list('repro_attempt', (a) => a.cluster_id === clusterId && a.result === 'valid' && a.test_path === pipe.repro_test_path)[0];
+    if (!winner || !repro || !pipe.culprit_json) return;
+    const w = await runDocs(this.ctx('docs'), {
+      cluster,
+      reproInterpretation: repro.interpretation,
+      invariant: pipe.expected_error ?? 'unknown',
+      culprit: JSON.parse(pipe.culprit_json) as Culprit,
+      winner,
+    });
+    if (!w) return;
+    this.store.update('pipeline', clusterId, { writeup_json: JSON.stringify(w) });
+    if (cluster.jira_key) await this.svc.jira.comment(cluster.jira_key, `Bug write-up (drafted by Claude from the verified facts above):\n\n${writeupText(w)}`);
   }
 
   // ------------------------------------------------------------ approve -> merge
@@ -269,6 +314,39 @@ export class Pipeline {
     }
   }
 
+  /** Undo a merged fix (human-triggered). A failed revert leaves the merged state untouched. */
+  async revert(clusterId: string, by: string, reason = ''): Promise<{ ok: boolean; reason?: string; sha?: string }> {
+    const pipe = this.store.get('pipeline', clusterId);
+    if (pipe?.stage !== 'merged' || !pipe.merged_sha) return { ok: false, reason: `cluster is at ${pipe?.stage ?? 'unknown'}, needs merged` };
+    if (this.busy.has(clusterId)) return { ok: false, reason: 'busy' };
+    this.busy.add(clusterId);
+    try {
+      this.audit.event('human', 'revert', { clusterId, inputs: { by, merged_sha: pipe.merged_sha, reason }, reasoning: 'Human revert of a merged fix' });
+      const cluster = this.store.get('cluster', clusterId)!;
+      const res = await this.heavyQ.add(() => runRevert(this.ctx('merger'), cluster, pipe.merged_sha!, by, reason));
+      if (!res) throw new Error('revert did not run');
+      this.setStage(clusterId, 'reverted', {
+        note: `Fix ${pipe.merged_sha.slice(0, 7)} reverted in ${res.sha.slice(0, 7)} by ${by}${reason ? `: ${reason}` : ''}${res.suitePasses ? '' : ' (suite FAILS on reverted main)'}`,
+      });
+      return { ok: true, sha: res.sha };
+    } catch (e) {
+      const msg = (e as Error).message;
+      this.audit.event('system', 'revert.failed', { clusterId, output: { error: msg } });
+      return { ok: false, reason: msg };
+    } finally {
+      this.busy.delete(clusterId);
+    }
+  }
+
+  /** Close a bug by hand (won't fix, not a real bug). Its reports stay; new reports start a fresh cluster. */
+  close(clusterId: string, by: string, reason = ''): { ok: boolean; reason?: string } {
+    if (!this.store.get('cluster', clusterId)) return { ok: false, reason: 'unknown cluster' };
+    if (this.busy.has(clusterId)) return { ok: false, reason: 'agents are still working on this bug' };
+    this.audit.event('human', 'close', { clusterId, inputs: { by, reason }, reasoning: 'Human closed the bug' });
+    this.setStage(clusterId, 'closed', { note: `Closed by ${by}${reason ? `: ${reason}` : ''}` });
+    return { ok: true };
+  }
+
   private fail(clusterId: string, e: unknown) {
     const msg = (e as Error)?.message ?? String(e);
     console.error(`[pipeline] ${clusterId}:`, msg);
@@ -282,7 +360,7 @@ export class Pipeline {
   }
 
   async showcase(limit = 2000) {
-    const items = await this.svc.scraper.fetch({ steamAppId: process.env.SHOWCASE_STEAM_APP_ID, subreddit: process.env.SHOWCASE_SUBREDDIT, limit });
+    const items = await this.svc.scraper.fetch({ steamAppId: process.env.SHOWCASE_STEAM_APP_ID, subreddit: process.env.SHOWCASE_SUBREDDIT, redditKeywords: showcaseKeywords(), limit });
     return runShowcase(this.ctx('scraper'), items);
   }
 

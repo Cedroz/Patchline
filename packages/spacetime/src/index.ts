@@ -54,6 +54,7 @@ const pipeline = table(
     winner_candidate_id: optStr(),
     merged_sha: optStr(),
     note: optStr(),
+    writeup_json: optStr(),
     updated_at: ms(),
   },
 );

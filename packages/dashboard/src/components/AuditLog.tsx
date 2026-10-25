@@ -1,6 +1,5 @@
-// Audit log: every audit_event with inputs, output and reasoning.
-import type { AuditEvent, Snapshot } from '@patchline/core';
-import { useState } from 'react';
+// Audit rows: audit_events with inputs, output and reasoning (used in the issue drawer).
+import type { AuditEvent } from '@patchline/core';
 import { ago } from '../api';
 
 export function AuditRows({ events }: { events: AuditEvent[] }) {
@@ -31,24 +30,6 @@ export function AuditRows({ events }: { events: AuditEvent[] }) {
   );
 }
 
-export function AuditLog({ db }: { db: Snapshot }) {
-  const [agent, setAgent] = useState('');
-  const agents = [...new Set(db.audit_event.map((e) => e.agent))].sort();
-  const events = db.audit_event.filter((e) => !agent || e.agent === agent).sort((a, b) => b.at - a.at).slice(0, 300);
-  return (
-    <div className="panel">
-      <div className="filters">
-        <select value={agent} onChange={(e) => setAgent(e.target.value)}>
-          <option value="">all agents ({db.audit_event.length} events)</option>
-          {agents.map((a) => (
-            <option key={a}>{a}</option>
-          ))}
-        </select>
-      </div>
-      <AuditRows events={events} />
-    </div>
-  );
-}
 
 function pretty(json: string) {
   try {

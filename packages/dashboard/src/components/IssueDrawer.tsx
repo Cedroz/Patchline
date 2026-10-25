@@ -1,9 +1,11 @@
-// Issue view: one bug from report to merge. Reports, repro race, bisect result, fix candidates with
+// Issue view: one bug from report to merge. Write-up, reports, repro race, bisect result, fix candidates with
 // diffs + scores, breaker tests, Approve, and the cluster's audit trail.
 import { STAGES, type Culprit, type FixCandidate, type Snapshot } from '@patchline/core';
 import { useState } from 'react';
 import { ago, maskName, post, type Meta } from '../api';
 import { AuditRows } from './AuditLog';
+import { BugDoc, docFor } from './BugDoc';
+import { ConfirmSheet, type Kind } from './Bugs';
 import { Diff } from './Diff';
 import { RunRow } from './Lanes';
 
@@ -21,6 +23,8 @@ export function IssueDrawer({ db, clusterId, meta, onClose }: { db: Snapshot; cl
   const pipe = db.pipeline.find((p) => p.cluster_id === clusterId);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const [confirm, setConfirm] = useState<Kind | null>(null);
+  const [done, setDone] = useState('');
   if (!cluster) return null;
 
   const reports = db.report.filter((r) => r.cluster_id === clusterId).sort((a, b) => a.created_at - b.created_at);
@@ -34,11 +38,11 @@ export function IssueDrawer({ db, clusterId, meta, onClose }: { db: Snapshot; cl
   const stageIdx = STAGES.indexOf(stage as (typeof STAGES)[number]);
   const gameUrl = meta?.game.liveUrl || 'http://localhost:5174';
 
-  const act = async (label: string, path: string) => {
+  const act = async (label: string, path: string, body: Record<string, string> = {}) => {
     setBusy(label);
     setError('');
     try {
-      await post(path, { by: 'dashboard' });
+      await post(path, { by: 'dashboard', ...body });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -59,7 +63,7 @@ export function IssueDrawer({ db, clusterId, meta, onClose }: { db: Snapshot; cl
               ) : (
                 cluster.jira_key
               )}{' '}
-              · {cluster.report_count} reports · <span className={`sev sev-${cluster.severity}`}>{cluster.severity}</span> · {cluster.labels.join(', ')}
+              · {cluster.report_count} report{cluster.report_count === 1 ? '' : 's'} · <span className={`sev sev-${cluster.severity}`}>{cluster.severity}</span>
             </div>
             <h2>{cluster.title}</h2>
             <p>{cluster.summary}</p>
@@ -75,19 +79,24 @@ export function IssueDrawer({ db, clusterId, meta, onClose }: { db: Snapshot; cl
               {s.replace(/_/g, ' ')}
             </li>
           ))}
-          {(stage === 'not_reproducible' || stage === 'escalated') && <li className="exit">{stage.replace(/_/g, ' ')}</li>}
+          {(stage === 'not_reproducible' || stage === 'escalated' || stage === 'duplicate' || stage === 'reverted' || stage === 'closed') && <li className="exit">{stage.replace(/_/g, ' ')}</li>}
         </ol>
         {pipe?.note && <p className="note">{pipe.note}</p>}
 
         <div className="actions">
-          {stage === 'culprit_found' && (
-            <button className="primary" disabled={!!busy} onClick={() => act('fix', `/clusters/${clusterId}/fix`)}>
-              {busy === 'fix' ? 'Starting…' : 'Start Droid fix tournament'}
+          {(stage === 'culprit_found' || stage === 'reverted') && (
+            <button className="primary" onClick={() => setConfirm('fix')}>
+              Run fix
+            </button>
+          )}
+          {stage === 'merged' && pipe?.merged_sha && (
+            <button className="danger" onClick={() => setConfirm('revert')}>
+              Revert fix {pipe.merged_sha.slice(0, 7)}
             </button>
           )}
           {stage === 'awaiting_approval' && (
-            <button className="approve" disabled={!!busy} onClick={() => act('approve', `/clusters/${clusterId}/approve`)}>
-              {busy === 'approve' ? 'Merging…' : 'Approve & merge winning fix'}
+            <button className="approve" onClick={() => setConfirm('approve')}>
+              Approve & ship fix
             </button>
           )}
           {(stage === 'not_reproducible' || stage === 'escalated') && (
@@ -95,8 +104,29 @@ export function IssueDrawer({ db, clusterId, meta, onClose }: { db: Snapshot; cl
               Retry repro
             </button>
           )}
+          {stage !== 'closed' && stage !== 'duplicate' && (
+            <button className="ghost-danger" onClick={() => setConfirm('close')}>
+              Close bug
+            </button>
+          )}
           {error && <span className="error">{error}</span>}
+          {done && <span className="ok-text">{done}</span>}
         </div>
+        {confirm && (
+          <ConfirmSheet
+            action={{ kind: confirm, doc: docFor(db, clusterId)! }}
+            onClose={() => setConfirm(null)}
+            onDone={(msg) => {
+              setConfirm(null);
+              setDone(msg);
+              if (confirm === 'close') onClose();
+            }}
+          />
+        )}
+
+        <Section title="Write-up" hint="What the bug is, why it happened, what the fix changes">
+          <BugDoc db={db} clusterId={clusterId} />
+        </Section>
 
         <Section title={`Reports (${reports.length})`}>
           {reports.map((r) => (

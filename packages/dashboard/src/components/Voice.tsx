@@ -1,8 +1,8 @@
-// /voice: hands-free phone view. "What's new?" brief, spoken commands, confirmed approve.
+// Voice panel on the dashboard: "What's new?" brief, spoken commands, confirmed approve.
 // Speech in: browser Web Speech API (needs HTTPS or localhost). Speech out: Cartesia via the orchestrator,
 // falling back to the browser's speechSynthesis. Typed input always works as a fallback.
 import { useRef, useState } from 'react';
-import { API, get, post } from '../api';
+import { API, get, post, type Meta } from '../api';
 
 interface Pending {
   action: 'approve';
@@ -11,13 +11,14 @@ interface Pending {
 
 type SpeechRec = { lang: string; interimResults: boolean; onresult: (e: { results: { 0: { transcript: string } }[] }) => void; onend: () => void; onerror: () => void; start: () => void };
 
-export function VoicePage() {
+export function VoicePanel({ meta }: { meta: Meta | null }) {
   const [log, setLog] = useState<{ who: 'you' | 'patchline'; text: string }[]>([]);
   const [pending, setPending] = useState<Pending | null>(null);
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [typed, setTyped] = useState('');
   const last = useRef('');
+  const engine = meta?.services.voice;
 
   const speak = async (text: string) => {
     last.current = text;
@@ -47,18 +48,29 @@ export function VoicePage() {
     }
   };
 
-  const brief = async () => {
-    const { text } = await get<{ text: string }>('/voice/brief');
-    await speak(text);
+  const run = async (fn: () => Promise<void>) => {
+    try {
+      await fn();
+    } catch (e) {
+      setLog((l) => [...l, { who: 'patchline', text: `Could not reach the orchestrator (${(e as Error).message}).` }]);
+      setSpeaking(false);
+    }
   };
 
-  const command = async (utterance: string) => {
-    if (!utterance.trim()) return;
-    setLog((l) => [...l, { who: 'you', text: utterance }]);
-    const res = await post<{ say: string; pending: Pending | null }>('/voice/command', { utterance, pending });
-    setPending(res.pending);
-    await speak(res.say === '__repeat__' ? last.current || 'Nothing to repeat yet.' : res.say);
-  };
+  const brief = () =>
+    run(async () => {
+      const { text } = await get<{ text: string }>('/voice/brief');
+      await speak(text);
+    });
+
+  const command = (utterance: string) =>
+    run(async () => {
+      if (!utterance.trim()) return;
+      setLog((l) => [...l, { who: 'you', text: utterance }]);
+      const res = await post<{ say: string; pending: Pending | null }>('/voice/command', { utterance, pending });
+      setPending(res.pending);
+      await speak(res.say === '__repeat__' ? last.current || 'Nothing to repeat yet.' : res.say);
+    });
 
   const listen = () => {
     const W = window as unknown as { SpeechRecognition?: new () => SpeechRec; webkitSpeechRecognition?: new () => SpeechRec };
@@ -78,17 +90,26 @@ export function VoicePage() {
   };
 
   return (
-    <div className="voice">
-      <h1>Patchline</h1>
-      <button className="big" disabled={speaking} onClick={() => void brief()}>
-        What's new?
-      </button>
-      <button className={`big mic ${listening ? 'on' : ''}`} disabled={speaking} onClick={listen}>
-        {listening ? 'Listening…' : '🎙 Hold to talk (tap)'}
-      </button>
+    <section className="voice-panel">
+      <div className="voice-head">
+        <h3>Voice</h3>
+        {engine && (
+          <span className={`badge ${engine.startsWith('mock') ? 'mock' : 'real'}`} title="text-to-speech engine">
+            {engine.startsWith('mock') ? 'browser voice' : engine}
+          </span>
+        )}
+      </div>
+      <div className="voice-buttons">
+        <button className="primary" disabled={speaking} onClick={() => void brief()}>
+          {speaking ? 'Speaking…' : "What's new?"}
+        </button>
+        <button className={`mic ${listening ? 'on' : ''}`} disabled={speaking} onClick={listen}>
+          {listening ? 'Listening…' : 'Talk'}
+        </button>
+      </div>
       {pending && (
         <div className="confirm">
-          Waiting for confirmation to approve.
+          Approve this fix?
           <div className="row">
             <button className="approve" onClick={() => void command('yes')}>
               Yes, approve
@@ -104,16 +125,20 @@ export function VoicePage() {
           setTyped('');
         }}
       >
-        <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder='Try "approve the score fix" or "details"' />
+        <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder='Or type: "details", "approve the fix"' />
       </form>
-      <div className="voice-log">
-        {[...log].reverse().map((m, i) => (
-          <p key={i} className={m.who}>
-            <strong>{m.who}:</strong> {m.text}
-          </p>
-        ))}
-      </div>
-      <p className="muted small">Player names are never read aloud. Approving always needs a spoken or tapped “yes”.</p>
-    </div>
+      {log.length > 0 && (
+        <div className="voice-log">
+          {[...log]
+            .reverse()
+            .slice(0, 4)
+            .map((m, i) => (
+              <p key={i} className={m.who}>
+                <strong>{m.who === 'you' ? 'You' : 'Patchline'}:</strong> {m.text}
+              </p>
+            ))}
+        </div>
+      )}
+    </section>
   );
 }
