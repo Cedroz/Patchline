@@ -108,6 +108,10 @@ export class GameRepo {
       fs.mkdirSync(this.sandbox, { recursive: true });
       const args = branch ? ['worktree', 'add', '-f', '-B', branch, wt, ref] : ['worktree', 'add', '-f', '--detach', wt, ref];
       await this.git(args);
+      // Link the tools clone's node_modules in, so an agent working in the worktree can run the repro itself.
+      // A junction needs no admin rights on Windows; node_modules is gitignored, so diffs and the scope check ignore it.
+      const tools = path.join(this.toolsDir, 'node_modules');
+      if (fs.existsSync(tools)) fs.symlinkSync(tools, path.join(wt, 'node_modules'), 'junction');
       return wt;
     }) as Promise<string>;
   }
@@ -117,6 +121,9 @@ export class GameRepo {
   }
 
   private async removeWorktreeUnlocked(wt: string) {
+    // Drop the node_modules link first, so removing the worktree can never reach into the real node_modules.
+    const link = path.join(wt, 'node_modules');
+    if (fs.lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink()) fs.unlinkSync(link);
     if (fs.existsSync(wt)) await this.tryGit(['worktree', 'remove', '--force', wt]);
     await this.tryGit(['worktree', 'prune']);
   }

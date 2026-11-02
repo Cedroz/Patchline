@@ -5,6 +5,7 @@ import { score } from './agents/verify';
 import { scrubNames } from './agents/voice';
 import { assertPolicy, GRANTS, toolkit } from './policy/capabilities';
 import { regexPass } from './policy/quarantine';
+import { commandAllowed, describeToolCall, describeToolResult } from './services/fix-agents';
 import { INJECTION_POST } from './server';
 
 describe('capabilities', () => {
@@ -61,5 +62,45 @@ describe('verify ranking', () => {
 describe('voice', () => {
   it('never speaks handles or emails', () => {
     expect(scrubNames('reported by @pixelpanda and jo@example.dev')).toBe('reported by a player and a player');
+  });
+});
+
+describe('droid commands', () => {
+  const wt = String.raw`C:\repo\.sandbox\fix-c_1-1`;
+  it('allows the repro and read-only git, in the worktree', () => {
+    expect(commandAllowed('node node_modules/vitest/vitest.mjs run __repro__/a.test.ts', wt)).toBe(true);
+    expect(commandAllowed('git diff', wt)).toBe(true);
+    expect(commandAllowed(`git -C ${wt} status --short`, wt)).toBe(true);
+    expect(commandAllowed(`git -C "${wt}" diff`, wt)).toBe(true);
+  });
+  it('refuses other directories, writes and chaining', () => {
+    expect(commandAllowed(`git -C ${wt}0 diff`, wt)).toBe(false); // sibling fix-c_1-10 shares the prefix
+    expect(commandAllowed(String.raw`git -C ${wt}\..\other diff`, wt)).toBe(false);
+    expect(commandAllowed(String.raw`git -C ${wt}\src diff`, wt)).toBe(true); // a subfolder is still the worktree
+    expect(commandAllowed(`git -C ${wt} push`, wt)).toBe(false);
+    expect(commandAllowed('git diff --output=../evil.ts', wt)).toBe(false);
+    expect(commandAllowed('git status && rm -rf .', wt)).toBe(false);
+    expect(commandAllowed('npm install left-pad', wt)).toBe(false);
+  });
+});
+
+describe('droid trace', () => {
+  it('turns vitest output into a test verdict', () => {
+    const fail = ' RUN  v2.1.9\n ❯ __repro__/a.test.ts (1)\n Test Files  1 failed (1)\n      Tests  1 failed (1)\n';
+    const pass = ' Test Files  1 passed (1)\n      Tests  1 passed (1)\n';
+    expect(describeToolResult('Execute', fail, true)).toBe('[test] FAIL · 1 failed (1)');
+    expect(describeToolResult('Execute', pass, false)).toBe('[test] PASS · 1 passed (1)');
+    expect(describeToolResult('Read', 'export const x = 1', false)).toBe('[result] Read ok');
+  });
+  it('names what a tool call touched', () => {
+    expect(describeToolCall('Execute', { command: 'git diff' }, '/wt')).toBe('[run] git diff');
+    expect(describeToolCall('Read', { file_path: '/wt/src/sim.ts' }, '/wt')).toMatch(/^\[read\] src[\\/]sim\.ts$/);
+  });
+});
+
+describe('droid trace labels', () => {
+  it('names the patched file and keeps planning out of edits', () => {
+    expect(describeToolCall('ApplyPatch', { input: '*** Begin Patch\n*** Update File: src/scoring.ts\n@@' }, '/wt')).toBe('[edit] src/scoring.ts');
+    expect(describeToolCall('TodoWrite', { todos: [] }, '/wt')).toBe('[plan] updated its to-do list');
   });
 });

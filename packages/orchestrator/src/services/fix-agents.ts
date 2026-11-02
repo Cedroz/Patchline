@@ -17,8 +17,9 @@ Bug: ${req.bugTitle}
 
 The failing repro test is ${req.failingTestPath}. Do not edit it or any other test file.
 You may only edit these files: ${req.allowlist.join(', ')}.
-Run the repro with: node node_modules/vitest/vitest.mjs run ${req.failingTestPath}   (may be unavailable; reason from code if so)
-Allowed commands: that vitest command and read-only git (git status, git diff, git log, git show), one command at a time.
+Run the repro with: node node_modules/vitest/vitest.mjs run ${req.failingTestPath}
+Run it before and after your edit, and keep editing until it passes.
+Allowed commands: that vitest command and read-only git (git status, git diff, git log, git show), one command at a time, from this directory.
 Any other command, or an edit to any other file, is refused and ends your run. Reading files needs no permission.
 
 Failing test:
@@ -38,6 +39,51 @@ First state a short plan, then make the edit, then summarize what you changed in
 
 /** Commands Droid may run: the repro/suite via vitest, and read-only git. Anything chained (&&, ;, |) is refused. */
 const ALLOWED_COMMAND = /^(node\s+node_modules[\\/]vitest[\\/]vitest\.mjs\s+run\b|npx vitest\b|pnpm (exec )?vitest\b|git (status|diff|log|show)\b)[^;&|`$<>]*$/;
+
+/** Is `p` the directory itself or inside it (not a sibling that merely shares the prefix)? */
+export function insideDir(p: string, dir: string): boolean {
+  const a = norm(p);
+  const d = norm(dir);
+  return a === d || a.startsWith(d + path.sep);
+}
+
+/** May Droid run this command in `worktree`? `git -C <dir> ...` counts when <dir> is the worktree. */
+export function commandAllowed(command: string, worktree: string): boolean {
+  const c = command.trim();
+  if (/\s--output\b/.test(c)) return false; // `git diff/log --output=<file>` writes a file: not read-only
+  const m = /^git\s+-C\s+(?:"([^"]+)"|(\S+))\s+(.+)$/.exec(c);
+  if (m) return insideDir(m[1] ?? m[2], worktree) && ALLOWED_COMMAND.test(`git ${m[3]}`);
+  return ALLOWED_COMMAND.test(c);
+}
+
+// Trace lines for the dashboard: what each tool call did, and test outcomes pulled out of command output,
+// so the edit -> run repro -> edit loop is visible (`[test] FAIL ...` then `[test] PASS ...`).
+const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
+const short = (s: string, n = 140) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+export function describeToolCall(name: string, input: unknown, worktree: string): string {
+  const i = (input ?? {}) as Record<string, unknown>;
+  const rel = (p: string) => (insideDir(p, worktree) ? path.relative(worktree, p) || '.' : p);
+  const command = [i.command, i.fullCommand, i.cmd].find((v) => typeof v === 'string') as string | undefined;
+  if (command) return `[run] ${short(command.trim())}`;
+  if (/todo/i.test(name)) return '[plan] updated its to-do list';
+  // A patch names its files inside the patch text ("*** Update File: src/x.ts").
+  const patched = /\*\*\* (?:Update|Add) File: ([^\n"\\]+)/.exec(JSON.stringify(i))?.[1];
+  const file = patched ?? ([i.file_path, i.filePath, i.path, i.target_file].find((v) => typeof v === 'string') as string | undefined);
+  const verb = /edit|write|patch|create/i.test(name) ? 'edit' : /read|view|open|cat/i.test(name) ? 'read' : /grep|search|glob|find|ls/i.test(name) ? 'search' : 'tool';
+  if (file) return `[${verb}] ${rel(file)}`;
+  const query = [i.pattern, i.query].find((v) => typeof v === 'string') as string | undefined;
+  return query ? `[${verb}] ${name}: ${short(query, 80)}` : `[${verb}] ${name}`;
+}
+
+export function describeToolResult(toolName: string, content: unknown, isError: boolean): string {
+  const text = (typeof content === 'string' ? content : JSON.stringify(content ?? '')).replace(ANSI, '');
+  // Vitest summary, e.g. "Tests  1 failed | 2 passed (3)" or "Tests  3 passed (3)".
+  const tests = /^\s*Tests\s+(.+)$/m.exec(text)?.[1]?.trim();
+  if (tests) return `[test] ${/failed/.test(tests) ? 'FAIL' : 'PASS'} · ${short(tests, 80)}`;
+  const first = text.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
+  return `[result] ${toolName} ${isError ? 'error' : 'ok'}${isError && first ? ` · ${short(first, 100)}` : ''}`;
+}
 
 /** The SDK spawns `droid` without a shell. On Windows the npm `droid` is a .cmd shim, which that can't run, so use
  *  DROID_EXEC_PATH or the native droid.exe the CLI package ships (found through the CLI's own platform.js). */
@@ -63,7 +109,6 @@ export class DroidFixAgent implements FixAgent {
     const sdk = await import('@factory/droid-sdk/node');
     const { createSession, AutonomyLevel, ToolConfirmationOutcome, ToolConfirmationType, DroidMessageType } = sdk;
     const allowed = new Set(req.allowlist.map((f) => norm(path.join(req.worktree, f))));
-    const inWorktree = (p: string) => norm(p).startsWith(norm(req.worktree));
 
     const session = await createSession({
       cwd: req.worktree,
@@ -80,7 +125,7 @@ export class DroidFixAgent implements FixAgent {
           if (d.type === ToolConfirmationType.Edit || d.type === ToolConfirmationType.Create || d.type === ToolConfirmationType.ApplyPatch) {
             return !!d.filePath && allowed.has(norm(path.isAbsolute(d.filePath) ? d.filePath : path.join(req.worktree, d.filePath)));
           }
-          if (d.type === ToolConfirmationType.Execute) return ALLOWED_COMMAND.test(cmd(d));
+          if (d.type === ToolConfirmationType.Execute) return commandAllowed(cmd(d), req.worktree);
           return false;
         };
         const ok = toolUses.every((u) => check(u.details as Conf));
@@ -102,10 +147,10 @@ export class DroidFixAgent implements FixAgent {
             req.onStep(msg.text.trim());
             break;
           case DroidMessageType.ToolCall:
-            req.onStep(`[tool] ${msg.name}`);
+            req.onStep(describeToolCall(msg.name, msg.input, req.worktree));
             break;
           case DroidMessageType.ToolResult:
-            req.onStep(`[tool result] ${msg.isError ? 'error' : 'ok'}`);
+            req.onStep(describeToolResult(msg.toolName, msg.content, msg.isError));
             break;
           case DroidMessageType.Error:
             req.onStep(`[error] ${msg.message}`);
@@ -118,7 +163,6 @@ export class DroidFixAgent implements FixAgent {
     } finally {
       await session.close();
     }
-    void inWorktree;
     const plan = text.split('\n').slice(0, 8).join('\n');
     return { plan, summary: text.split('\n').filter(Boolean).pop() ?? '', agent: 'droid' };
   }

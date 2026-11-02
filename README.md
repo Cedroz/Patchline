@@ -1,10 +1,10 @@
 # Patchline
 
-**An AI QA team for indie game studios.** Patchline turns player complaints into a reproduced bug, the exact commit that caused it, and a verified fix that a human approves.
+**An AI QA team for solo and small indie game devs.** Patchline turns player complaints into a reproduced bug, the exact commit that caused it, and a verified fix that a human approves.
 
 > Every AI debugger guesses. Ours proves it: reproduce the bug from a player's complaint, find the commit that broke it, and only show you fixes that pass.
 
-Built at Cal Hacks 13.0 for indie teams of 1 to 5 people with no QA staff, whose bug reports are scattered across in-game reports, Discord, Steam and Reddit.
+Built at Cal Hacks 13.0 for solo and small indie devs shipping on Steam, whose bug reports land in a Discord, Steam reviews or Reddit they don't have time to read.
 
 ## What makes it more than a wrapper
 
@@ -77,12 +77,13 @@ Each agent receives `toolkit(agent, ALL_TOOLS)`: an object that contains only it
 
 ## Factory Droid: where and how Droid runs
 
-- **Trigger:** a cluster reaches `culprit_found` and its Jira issue has the `agent-fixable` label. A human adds it (the Forge trigger forwards it), or the demo adds it automatically (`AUTO_AGENT_FIXABLE=1`). The dashboard's "Start Droid fix tournament" button does the same thing.
+- **Trigger:** a cluster reaches `culprit_found` and its Jira issue has the `agent-fixable` label. A human adds it (the Forge trigger forwards it), or the demo adds it automatically (`AUTO_AGENT_FIXABLE=1`). The dashboard's **Run fix** button does the same thing.
 - **What runs:** `packages/orchestrator/src/services/fix-agents.ts` → `DroidFixAgent`. It uses `createSession` from `@factory/droid-sdk/node`, with `cwd` set to a dedicated git worktree on branch `fix/<cluster>/<n>`. Two sessions run in parallel with different instructions: "smallest change" and "root cause in the culprit change".
 - **Limits on what it can touch:** `autonomyLevel: Off` routes every tool use through our `permissionHandler`. It allows edits and creates **only** to files touched by the culprit commit (the bisect result), and commands **only** to run vitest. Everything else is cancelled and logged as `[permission] DENY`. After the run, `scopeCheck` checks the git diff again: any file outside the allowlist or any test file rejects the candidate.
 - **Visible:** each candidate's plan, streamed steps (assistant text, tool calls, permission decisions), diff, gate results and score appear live on the dashboard. The Forge panel shows the same.
+- **Edit, test, repeat:** each worktree links the game's `node_modules` (a junction on Windows, unlinked before the worktree is removed), so Droid runs the repro itself: it watches it fail, edits, and reruns until it passes. The verify gate then reruns everything independently.
 - `ClaudeFixAgent` (Anthropic API, writes whole files within the allowlist) and `MockFixAgent` sit behind the same `FixAgent` interface (`FIX_AGENT=droid|claude|mock`).
-- **Permission handler** (`autonomyLevel: Off`, so every action asks): edits and patches only to files in the culprit commit's allowlist; commands only the vitest repro/suite or read-only git (`git status|diff|log|show`), with chaining (`&&`, `;`, `|`) refused. Script batches are checked call by call, against the full command line (`fullCommand`). Reads need no permission. A refusal ends the run, so the prompt states these rules up front. Every allow/deny decision is logged to the candidate's trace on the board.
+- **Permission handler** (`autonomyLevel: Off`, so every action asks): edits and patches only to files in the culprit commit's allowlist; commands only the vitest repro/suite or read-only git (`git status|diff|log|show`, also as `git -C <its own worktree>`), with chaining (`&&`, `;`, `|`) and `--output` (which writes a file) refused. The rules live in `commandAllowed` and are unit-tested in `policy.test.ts`. Script batches are checked call by call, against the full command line (`fullCommand`). Reads need no permission. A refusal ends the run, so the prompt states these rules up front. Every allow/deny decision is logged to the candidate's trace on the board.
 - Needs the `droid` CLI plus `FACTORY_API_KEY`. On Windows the npm `droid` is a `.cmd` shim the SDK can't spawn, so the agent resolves the native `droid.exe` from the CLI package (override with `DROID_EXEC_PATH`). Check it with `pnpm droid:smoke`: one real Droid run on the score-reset bug in a throwaway clone, then the scope check, the repro and the full suite.
 
 ## Anthropic: how Claude is used, and where it can go wrong

@@ -38,7 +38,7 @@ Patchline is an AI QA team for indie game studios: it turns player complaints in
 
 **Pitch (one line):** "Every AI debugger guesses. Ours proves it: reproduce the bug from a player's complaint, find the commit that broke it, and only show you fixes that pass."
 
-**Named community:** indie game teams of 1 to 5 people with no QA staff, whose bug reports are scattered across in-game reports, Discord, Steam and Reddit. The engine is source-agnostic, so the pitch closes with "and it scales to AAA launch volume."
+**Named community:** solo and small indie devs shipping on Steam, whose bug reports land in a Discord, Steam reviews or Reddit they don't have time to read. The engine is source-agnostic, so the pitch closes with "and it scales to AAA launch volume."
 
 What makes it more than a wrapper:
 

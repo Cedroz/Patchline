@@ -207,8 +207,29 @@ export function IssueDrawer({ db, clusterId, meta, onClose }: { db: Snapshot; cl
   );
 }
 
+/** One trace line, coloured by kind: test verdicts, permission decisions, commands, edits. */
+function LogLine({ line }: { line: string }) {
+  const kind = line.startsWith('[test] FAIL')
+    ? 'fail'
+    : line.startsWith('[test] PASS')
+      ? 'pass'
+      : line.startsWith('[permission] DENY') || line.startsWith('[error]') || line.startsWith('[blocked]')
+        ? 'deny'
+        : line.startsWith('[permission]')
+          ? 'allow'
+          : line.startsWith('[run]') || line.startsWith('[edit]')
+            ? 'act'
+            : line.startsWith('[')
+              ? 'quiet'
+              : 'say';
+  return <div className={`log-${kind}`}>{line}</div>;
+}
+
 function Candidate({ c, winner }: { c: FixCandidate; winner: boolean }) {
   const gate = (v?: boolean) => (v === undefined ? '…' : v ? '✓' : '✗');
+  const lines = c.log.split('\n').filter(Boolean);
+  // The agent's own test runs, in order: shows it watched the repro fail, edited, and saw it pass.
+  const runs = lines.filter((l) => l.startsWith('[test] ')).map((l) => (l.startsWith('[test] PASS') ? 'pass' : 'fail'));
   return (
     <div className={`candidate status-${c.status} ${winner ? 'is-winner' : ''}`}>
       <div className="cand-head">
@@ -216,7 +237,7 @@ function Candidate({ c, winner }: { c: FixCandidate; winner: boolean }) {
           #{c.n} {c.strategy.replace('_', ' ')}
         </strong>
         <span className="agent">{c.agent}</span>
-        <span className={`status`}>{winner ? 'WINNER' : c.status}</span>
+        <span className={`status`}>{winner ? 'winner' : c.status}</span>
       </div>
       <code className="muted small">{c.branch}</code>
       <div className="gates">
@@ -231,9 +252,23 @@ function Candidate({ c, winner }: { c: FixCandidate; winner: boolean }) {
       </div>
       {c.scope_reason && <p className="error small">{c.scope_reason}</p>}
       {c.plan && <p className="plan">{c.plan}</p>}
+      {runs.length > 0 && (
+        <div className="test-loop">
+          <span className="muted small">Its own test runs</span>
+          {runs.map((r, i) => (
+            <span key={i} className={`run-chip ${r}`}>
+              {r}
+            </span>
+          ))}
+        </div>
+      )}
       <details>
-        <summary>Agent log ({c.log.split('\n').filter(Boolean).length} steps)</summary>
-        <pre className="code small">{c.log}</pre>
+        <summary>Agent log ({lines.length} steps)</summary>
+        <div className="code small agent-log">
+          {lines.map((l, i) => (
+            <LogLine key={i} line={l} />
+          ))}
+        </div>
       </details>
       <Diff diff={c.diff} />
     </div>
