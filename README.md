@@ -4,7 +4,7 @@
 
 > Every AI debugger guesses. Ours proves it: reproduce the bug from a player's complaint, find the commit that broke it, and only show you fixes that pass.
 
-Built at Cal Hacks 13.0 for indie teams of 1 to 5 people with no QA staff, whose bug reports are scattered across in-game reports, Discord, Steam and Reddit.
+Built for indie teams of 1 to 5 people with no QA staff, whose bug reports are scattered across in-game reports, Discord, Steam and Reddit.
 
 ## What makes it more than a wrapper
 
